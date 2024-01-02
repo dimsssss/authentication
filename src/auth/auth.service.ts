@@ -3,7 +3,6 @@ import { UsersService } from '../user/users.service';
 import { JwtService } from '@nestjs/jwt';
 import { Auth } from './dto/auth.response';
 import { ConfigService } from '@nestjs/config';
-import { InvalidException } from './exception/auth.invalid-exception';
 
 @Injectable()
 export class AuthService {
@@ -20,33 +19,29 @@ export class AuthService {
       if (user?.password !== pass) {
         throw new UnauthorizedException();
       }
-  
-      const accessToken = await this.jwtService.signAsync({ userId: user.id, username: user.firstname, type: 'access' }, { expiresIn : '1h', secret: this.configService.get('SECRET')})
-      const refreshToken = await this.jwtService.signAsync({ userId: user.id, username: user.firstname, type: 'refresh', accessToken }, { expiresIn : '30d', secret: this.configService.get('SECRET')})    
-  
+
+      const [accessToken, refreshToken] = await Promise.all([
+        this.jwtService.signAsync({ userId: user.id, username: user.firstname}, { expiresIn : '1h', secret: this.configService.get('ACCESS_SECRET')}),
+        this.jwtService.signAsync({ userId: user.id, username: user.firstname}, { expiresIn : '30d', secret: this.configService.get('REFRESH_SECRET')})
+      ])
+
       return new Auth(accessToken, refreshToken, user.id, user.lastname)
     } catch(err) {
       throw err
     }
   }
 
-  async refreshToken(accessToken, prevRefreshToken) : Promise<Auth> {
+  async refreshToken(prevRefreshToken) : Promise<Auth> {
     try {
-      const payload = await this.jwtService.verifyAsync(prevRefreshToken,{secret: this.configService.get('SECRET')});
-
-      if (accessToken !== payload.accessToken) {
-        throw new InvalidException('Invalid access Token')
-      }
-  
-      if (prevRefreshToken !== payload.refreshToken) {
-        throw new InvalidException('Invalid Refresh Token')
-      }
+      const payload = await this.jwtService.verifyAsync(prevRefreshToken,{secret: this.configService.get('REFRESH_SECRET')});
+      const [newAccessToken, newRefreshToken] = await Promise.all([
+        this.jwtService.signAsync({ userId: payload.userId, username: payload.username}, { expiresIn : '1h', secret: this.configService.get('ACCESS_SECRET')}),
+        this.jwtService.signAsync({ userId: payload.userId, username: payload.username}, { expiresIn : '30d', secret: this.configService.get('REFRESH_SECRET')})
+      ])
       
-      const newAccessToken = this.jwtService.signAsync({ userId: payload.id, username: payload.username, type: 'access' }, { expiresIn : '1h'})
-      const newRefreshToken = this.jwtService.signAsync({ userId: payload.id, username: payload.username, type: 'refresh', newAccessToken }, { expiresIn : '30d'})    
-  
-      return new Auth(newAccessToken, newRefreshToken, payload.id, payload.username)
+      return new Auth(newAccessToken, newRefreshToken, payload.userId, payload.username)
     } catch(error) {
+      console.error(error)
       throw error
     }
   }

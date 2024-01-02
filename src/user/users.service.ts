@@ -11,7 +11,7 @@ export class UsersService {
   ) {}
 
   findOne(id: number): Promise<User | null> {
-    return this.usersRepository.findOne(id)
+    return this.usersRepository.findOneBy({id})
   }
 
   findOneBy(email: string): Promise<User | null> {
